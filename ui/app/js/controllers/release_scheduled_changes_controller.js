@@ -1,16 +1,17 @@
-angular.module("app").controller("RuleScheduledChangesController",
-function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $route, Releases) {
+angular.module("app").controller("ReleaseScheduledChangesController",
+function($scope, $routeParams, $location, $timeout, Search, $modal, $route, Releases) {
 
   $scope.loading = true;
   $scope.failed = false;
 
-  $scope.sc_id = parseInt($routeParams.sc_id, 10);
+  $scope.sc_id = $routeParams.sc_id;
 
   function loadPage(newPage) {
-    Rules.getScheduledChangeHistory($scope.sc_id, $scope.pageSize, newPage)
+    Releases.getScheduledChangeHistory($scope.sc_id, $scope.pageSize, newPage)
     .success(function(response) {
+      // it's the same release, but this works
       $scope.scheduled_changes = response.revisions;
-      $scope.scheduled_changes_rules_count = response.count;
+      $scope.scheduled_changes_count = response.count;
     })
     .error(function() {
       console.error(arguments);
@@ -22,12 +23,12 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
   }
 
   if ($scope.sc_id) {
-    // history of a specific rule
     $scope.$watch("currentPage", function(newPage) {
       loadPage(newPage);
     });
   } else {
-  Rules.getScheduledChanges()
+
+  Releases.getScheduledChanges()
   .success(function(response) {
     // "when" is a unix timestamp, but it's much easier to work with Date objects,
     // so we convert it to that before rendering.
@@ -45,14 +46,11 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
   .finally(function() {
     $scope.loading = false;
   });
-  }
-
+}
   $scope.$watch("ordering_str", function(value) {
     $scope.ordering = value.value.split(",");
   });
-
-
-   if ($scope.sc_id) {
+  if ($scope.sc_id) {
     $scope.ordering_options = [
       {
         text: "Data Version",
@@ -60,14 +58,18 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
       },
     ];
   } else {
-    $scope.ordering_options = [
+  $scope.ordering_options = [
     {
       text: "When",
       value: "when"
     },
     {
-      text: "Product, Channel",
-      value: "product,channel"
+      text: "Product",
+      value: "product"
+    },
+    {
+      text: "Name",
+      value: "name"
     },
   ];
   }
@@ -110,11 +112,11 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
     return '<time title="' + date.format('dddd, MMMM D, YYYY HH:mm:ss ') + 'GMT' + date.format('ZZ') + '">' + date.fromNow() + '</time>';
   };
 
-  $scope.openNewScheduledRuleChangeModal = function() {
+  $scope.openNewScheduledReleaseChangeModal = function() {
 
     var modalInstance = $modal.open({
-      templateUrl: 'rule_scheduled_change_modal.html',
-      controller: 'NewRuleScheduledChangeCtrl',
+      templateUrl: 'release_scheduled_change_modal.html',
+      controller: 'NewReleaseScheduledChangeCtrl',
       size: 'lg',
       backdrop: 'static',
       resolve: {
@@ -122,13 +124,10 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
           return $scope.scheduled_changes;
         },
         sc: function() {
-          // blank new default rule
+          // blank new default release
           return {
+            name: '',
             product: '',
-            backgroundRate: 0,
-            priority: 0,
-            update_type: 'minor',
-            when: null,
             change_type: 'insert',
           };
         }
@@ -138,8 +137,8 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
 
   $scope.openUpdateModal = function(sc) {
     var modalInstance = $modal.open({
-      templateUrl: "rule_scheduled_change_modal.html",
-      controller: "EditRuleScheduledChangeCtrl",
+      templateUrl: "release_scheduled_change_modal.html",
+      controller: "EditReleaseScheduledChangeCtrl",
       size: 'lg',
       backdrop: 'static',
       resolve: {
@@ -153,8 +152,8 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
 
   $scope.openDeleteModal = function(sc) {
     var modalInstance = $modal.open({
-      templateUrl: "rule_scheduled_change_delete_modal.html",
-      controller: "DeleteRuleScheduledChangeCtrl",
+      templateUrl: "release_scheduled_change_delete_modal.html",
+      controller: "DeleteReleaseScheduledChangeCtrl",
       backdrop: 'static',
       resolve: {
         sc: function() {
@@ -164,34 +163,6 @@ function($scope, $routeParams, $location, $timeout, Rules, Search, $modal, $rout
           return $scope.scheduled_changes;
         }
       }
-    });
-  };
-
-  $scope.openReleaseDataModal = function(mapping) {
-    Releases.getRelease(mapping)
-    .success(function(response) {
-      // it's the same rule, but this works
-      var modalInstance = $modal.open({
-        templateUrl: 'release_data_modal.html',
-        controller: 'ReleaseDataCtrl',
-        size: 'lg',
-        backdrop: 'static',
-        resolve: {
-          release: function () {
-            return response;
-          },
-          diff: function() {
-            return false;
-          }
-        }
-      });
-    })
-    .error(function() {
-      console.error(arguments);
-      $scope.failed = true;
-    })
-    .finally(function() {
-      $scope.loading = false;
     });
   };
 });

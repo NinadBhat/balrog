@@ -1,3 +1,4 @@
+import mock
 import simplejson as json
 
 from sqlalchemy import select
@@ -340,6 +341,13 @@ class TestReleasesAPI_JSON(ViewTest):
         data = json.dumps(dict(uehont="uhetn", schema_version=1))
         ret = self._post("/releases/c", data=dict(data=data, product="c", data_version=1))
         self.assertStatusCode(ret, 400)
+        self.assertIn("Additional properties are not allowed", ret.data)
+
+    def testReleasePostWithSignoffRequired(self):
+        data = json.dumps(dict(bouncerProducts=dict(partial='foo'), name='a', hashFunction="sha512"))
+        ret = self._post("/releases/a", data=dict(data=data, product="a", data_version=1, schema_version=1))
+        self.assertStatusCode(ret, 400)
+        self.assertIn("This change requires signoff", ret.data)
 
     def testReleasePostCreatesNewReleasev1(self):
         data = json.dumps(dict(bouncerProducts=dict(partial='foo'), name='e', hashFunction="sha512"))
@@ -384,7 +392,7 @@ class TestReleasesAPI_JSON(ViewTest):
 
     def testReleasePostInvalidKey(self):
         data = json.dumps(dict(foo=1))
-        ret = self._post('/releases/a', data=dict(data=data))
+        ret = self._post('/releases/ab', data=dict(data=data))
         self.assertStatusCode(ret, 400)
 
     def testReleasePostRejectedURL(self):
@@ -438,13 +446,13 @@ class TestReleasesAPI_JSON(ViewTest):
                 "hashValue": "abc",
             }
         })
-        ret = self._put('/releases/a/builds/p/l', data=dict(data=data, product='a', data_version=1, schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 201)
         self.assertEqual(ret.data, json.dumps(dict(new_data_version=2)), "Data: %s" % ret.data)
-        ret = select([dbo.releases.data]).where(dbo.releases.name == 'a').execute().fetchone()[0]
+        ret = select([dbo.releases.data]).where(dbo.releases.name == 'ab').execute().fetchone()[0]
         self.assertEqual(ret, createBlob("""
 {
-    "name": "a",
+    "name": "ab",
     "schema_version": 1,
     "hashFunction": "sha512",
     "platforms": {
@@ -471,13 +479,13 @@ class TestReleasesAPI_JSON(ViewTest):
                 "hashValue": "abc",
             }
         })
-        ret = self._put('/releases/a/builds/p/l', username="ashanti", data=dict(data=data, product='a', data_version=1, schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', username="ashanti", data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 201)
         self.assertEqual(ret.data, json.dumps(dict(new_data_version=2)), "Data: %s" % ret.data)
-        ret = select([dbo.releases.data]).where(dbo.releases.name == 'a').execute().fetchone()[0]
+        ret = select([dbo.releases.data]).where(dbo.releases.name == 'ab').execute().fetchone()[0]
         self.assertEqual(ret, createBlob("""
 {
-    "name": "a",
+    "name": "ab",
     "schema_version": 1,
     "hashFunction": "sha512",
     "platforms": {
@@ -498,17 +506,17 @@ class TestReleasesAPI_JSON(ViewTest):
 
     def testLocalePutWithBadHashFunction(self):
         data = json.dumps(dict(complete=dict(filesize='435')))
-        ret = self._put('/releases/a/builds/p/l', data=dict(data=data, product='a', data_version=1, schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 400)
 
     def testLocalePutWithoutPermission(self):
         data = '{"complete": {"filesize": 435, "from": "*", "hashValue": "abc"}}'
-        ret = self._put('/releases/a/builds/p/l', username='liu', data=dict(data=data, product='a', data_version=1, schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', username='liu', data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 403)
 
     def testLocalePutWithoutPermissionForProduct(self):
         data = '{"complete": {"filesize": 435, "from": "*", "hashValue": "abc"}}'
-        ret = self._put('/releases/a/builds/p/l', username='bob', data=dict(data=data, product='a', data_version=1, schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', username='bob', data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 403)
 
     def testLocalePutForNewRelease(self):
@@ -683,31 +691,10 @@ class TestReleasesAPI_JSON(ViewTest):
                 "hashValue": "abc",
             }
         })
-        data = dict(data=data, product='a', copyTo=json.dumps(['ab']), data_version=1, schema_version=1)
-        ret = self._put('/releases/a/builds/p/l', data=data)
+        data = dict(data=data, product='a', copyTo=json.dumps(['b']), data_version=1, schema_version=1)
+        ret = self._put('/releases/ab/builds/p/l', data=data)
         self.assertStatusCode(ret, 201)
         self.assertEqual(ret.data, json.dumps(dict(new_data_version=2)), "Data: %s" % ret.data)
-        ret = select([dbo.releases.data]).where(dbo.releases.name == 'a').execute().fetchone()[0]
-        self.assertEqual(ret, createBlob("""
-{
-    "name": "a",
-    "schema_version": 1,
-    "hashFunction": "sha512",
-    "platforms": {
-        "p": {
-            "locales": {
-                "l": {
-                    "partial": {
-                        "filesize": 123,
-                        "from": "b",
-                        "hashValue": "abc"
-                    }
-                }
-            }
-        }
-    }
-}
-"""))
         ret = select([dbo.releases.data]).where(dbo.releases.name == 'ab').execute().fetchone()[0]
         self.assertEqual(ret, createBlob("""
 {
@@ -729,14 +716,35 @@ class TestReleasesAPI_JSON(ViewTest):
     }
 }
 """))
+        ret = select([dbo.releases.data]).where(dbo.releases.name == 'b').execute().fetchone()[0]
+        self.assertEqual(ret, createBlob("""
+{
+    "name": "b",
+    "schema_version": 1,
+    "hashFunction": "sha512",
+    "platforms": {
+        "p": {
+            "locales": {
+                "l": {
+                    "partial": {
+                        "filesize": 123,
+                        "from": "b",
+                        "hashValue": "abc"
+                    }
+                }
+            }
+        }
+    }
+}
+"""))
 
     def testLocalePutBadJSON(self):
-        ret = self._put('/releases/a/builds/p/l', data=dict(data='a', product='a'))
+        ret = self._put('/releases/ab/builds/p/l', data=dict(data='a', product='a'))
         self.assertStatusCode(ret, 400)
 
     def testLocaleRejectedURL(self):
         data = json.dumps(dict(complete=dict(fileUrl='http://evil.com')))
-        ret = self._put('/releases/a/builds/p/l', data=dict(data=data, product='a', data_version=1))
+        ret = self._put('/releases/ab/builds/p/l', data=dict(data=data, product='a', data_version=1))
         self.assertStatusCode(ret, 400)
 
     def testLocaleGet(self):
@@ -758,7 +766,7 @@ class TestReleasesAPI_JSON(ViewTest):
         self.assertStatusCode(ret, 401)
 
     def testLocalePutReadOnlyRelease(self):
-        dbo.releases.t.update(values=dict(read_only=True, data_version=2)).where(dbo.releases.name == "a").execute()
+        dbo.releases.t.update(values=dict(read_only=True, data_version=2)).where(dbo.releases.name == "ab").execute()
         data = json.dumps({
             "complete": {
                 "filesize": 435,
@@ -766,7 +774,7 @@ class TestReleasesAPI_JSON(ViewTest):
                 "hashValue": "abc",
             }
         })
-        ret = self._put('/releases/a/builds/p/l', data=dict(data=data, product='a', data_version=1, schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 403)
 
     def testLocalePutWithProductAdmin(self):
@@ -777,7 +785,7 @@ class TestReleasesAPI_JSON(ViewTest):
                 "hashValue": "abc",
             }
         })
-        ret = self._put('/releases/a/builds/p/l', username='billy',
+        ret = self._put('/releases/ab/builds/p/l', username='billy',
                         data=dict(data=data, product='a', data_version=1, schema_version=1))
         self.assertStatusCode(ret, 201)
 
@@ -795,7 +803,7 @@ class TestReleasesAPI_JSON(ViewTest):
 
     def testLocalePutCantChangeProduct(self):
         data = json.dumps(dict(complete=dict(filesize=435)))
-        ret = self._put('/releases/a/builds/p/l', data=dict(data=data, product='b', schema_version=1))
+        ret = self._put('/releases/ab/builds/p/l', data=dict(data=data, product='b', schema_version=1))
         self.assertStatusCode(ret, 400)
 
     def testLocaleGet404(self):
@@ -1016,18 +1024,387 @@ class TestReleasesAPI_JSON(ViewTest):
 """))
 
 
-def byteify(input):
-    if isinstance(input, dict):
-        res = {}
-        for key, value in input.items():
-            res[byteify(key)] = byteify(value)
-        return res
-    elif isinstance(input, list):
-        return [byteify(element) for element in input]
-    elif isinstance(input, unicode):
-        return input.encode('utf-8')
-    else:
-        return input
+class TestReleasesScheduledChanges(ViewTest):
+    maxDiff = 10000
+
+    def setUp(self):
+        super(TestReleasesScheduledChanges, self).setUp()
+        dbo.releases.scheduled_changes.t.insert().execute(
+            sc_id=1, scheduled_by="bill", change_type="insert", data_version=1, base_name="m", base_product="m",
+            base_data=createBlob(dict(name="m", hashFunction="sha512", schema_version=1))
+        )
+        dbo.releases.scheduled_changes.history.t.insert().execute(change_id=1, changed_by="bill", timestamp=50, sc_id=1)
+        dbo.releases.scheduled_changes.history.t.insert().execute(
+            change_id=2, changed_by="bill", timestamp=51, sc_id=1, scheduled_by="bill", change_type="insert", data_version=1, base_name="m",
+            base_product="m", base_data=createBlob(dict(name="m", hashFunction="sha512", schema_version=1))
+        )
+        dbo.releases.scheduled_changes.signoffs.t.insert().execute(sc_id=1, username="bill", role="releng")
+        dbo.releases.scheduled_changes.signoffs.history.t.insert().execute(change_id=1, changed_by="bill", timestamp=100, sc_id=1, username="bill")
+        dbo.releases.scheduled_changes.signoffs.history.t.insert().execute(change_id=2, changed_by="bill", timestamp=101, sc_id=1,
+                                                                           username="bill", role="releng")
+        dbo.releases.scheduled_changes.conditions.t.insert().execute(sc_id=1, when=4000000000, data_version=1)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(change_id=1, changed_by="bill", timestamp=50, sc_id=1)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(
+            change_id=2, changed_by="bill", timestamp=51, sc_id=1, when=4000000000, data_version=1
+        )
+
+        dbo.releases.scheduled_changes.t.insert().execute(
+            sc_id=2, scheduled_by="bill", change_type="update", data_version=1, base_name="c", base_product="c",
+            base_data=createBlob(dict(name="c", hashFunction="sha512", schema_version=1, extv="2.0")), base_data_version=1
+        )
+        dbo.releases.scheduled_changes.history.t.insert().execute(change_id=3, changed_by="bill", timestamp=70, sc_id=2)
+        dbo.releases.scheduled_changes.history.t.insert().execute(
+            change_id=4, changed_by="bill", timestamp=71, sc_id=2, scheduled_by="bill", change_type="update", data_version=1, base_name="c",
+            base_product="c", base_data=createBlob(dict(name="c", hashFunction="sha512", schema_version=1, extv="2.0")), base_data_version=1
+        )
+        dbo.releases.scheduled_changes.conditions.t.insert().execute(sc_id=2, when=6000000000, data_version=1)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(change_id=3, changed_by="bill", timestamp=70, sc_id=2)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(
+            change_id=4, changed_by="bill", timestamp=71, sc_id=2, when=6000000000, data_version=1
+        )
+
+        dbo.releases.scheduled_changes.t.insert().execute(
+            sc_id=3, complete=True, scheduled_by="bill", change_type="update", data_version=2, base_name="b", base_product="b",
+            base_data=createBlob(dict(name="b", hashFunction="sha512", schema_version=1)), base_data_version=1
+        )
+        dbo.releases.scheduled_changes.history.t.insert().execute(change_id=5, changed_by="bill", timestamp=6, sc_id=3)
+        dbo.releases.scheduled_changes.history.t.insert().execute(
+            change_id=6, changed_by="bill", timestamp=7, sc_id=3, complete=False, scheduled_by="bill", change_type="update", data_version=1, base_name="b",
+            base_product="b", base_data=createBlob(dict(name="b", hashFunction="sha512", schema_version=1)), base_data_version=1
+        )
+        dbo.releases.scheduled_changes.history.t.insert().execute(
+            change_id=7, changed_by="bill", timestamp=25, sc_id=3, complete=True, change_type="update", scheduled_by="bill", data_version=2, base_name="b",
+            base_product="b", base_data=createBlob(dict(name="b", hashFunction="sha512", schema_version=1)), base_data_version=1
+        )
+        dbo.releases.scheduled_changes.conditions.t.insert().execute(sc_id=3, when=10000000, data_version=2)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(change_id=5, changed_by="bill", timestamp=6, sc_id=3)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(
+            change_id=6, changed_by="bill", timestamp=7, sc_id=3, when=10000000, data_version=1
+        )
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(
+            change_id=7, changed_by="bill", timestamp=25, sc_id=3, when=10000000, data_version=2
+        )
+        dbo.releases.scheduled_changes.t.insert().execute(
+            sc_id=4, complete=False, scheduled_by="bill", change_type="delete", data_version=1, base_name="ab", base_data_version=1,
+        )
+        dbo.releases.scheduled_changes.history.t.insert().execute(change_id=8, changed_by="bill", timestamp=25, sc_id=4)
+        dbo.releases.scheduled_changes.history.t.insert().execute(
+            change_id=9, changed_by="bill", timestamp=26, sc_id=4, complete=False, scheduled_by="bill", change_type="delete", data_version=1,
+            base_name="ab", base_data_version=1
+        )
+        dbo.releases.scheduled_changes.conditions.t.insert().execute(sc_id=4, when=230000000, data_version=1)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(change_id=8, changed_by="bill", timestamp=25, sc_id=4)
+        dbo.releases.scheduled_changes.conditions.history.t.insert().execute(
+            change_id=9, changed_by="bill", timestamp=26, sc_id=4, when=230000000, data_version=1
+        )
+
+    def testGetScheduledChanges(self):
+        ret = self._get("/scheduled_changes/releases")
+        expected = {
+            "count": 3,
+            "scheduled_changes": [
+                {
+                    "sc_id": 1, "when": 4000000000, "scheduled_by": "bill", "change_type": "insert", "complete": False, "sc_data_version": 1,
+                    "name": "m", "product": "m", "data": {"name": "m", "hashFunction": "sha512", "schema_version": 1}, "read_only": False,
+                    "data_version": None, "signoffs": {"bill": "releng"},
+                },
+                {
+                    "sc_id": 2, "when": 6000000000, "scheduled_by": "bill", "change_type": "update", "complete": False, "sc_data_version": 1,
+                    "name": "c", "product": "c", "data": {"name": "c", "hashFunction": "sha512", "schema_version": 1, "extv": "2.0"},
+                    "read_only": False, "data_version": 1, "signoffs": {},
+                },
+                {
+                    "sc_id": 4, "when": 230000000, "scheduled_by": "bill", "change_type": "delete", "complete": False, "sc_data_version": 1,
+                    "name": "ab", "product": None, "data": None, "read_only": False, "data_version": 1, "signoffs": {},
+                },
+            ]
+        }
+        self.assertEquals(json.loads(ret.data), expected)
+
+    def testGetScheduledChangesWithCompleted(self):
+        ret = self._get("/scheduled_changes/releases", qs={"all": 1})
+        expected = {
+            "count": 4,
+            "scheduled_changes": [
+                {
+                    "sc_id": 1, "when": 4000000000, "scheduled_by": "bill", "change_type": "insert", "complete": False, "sc_data_version": 1,
+                    "name": "m", "product": "m", "data": {"name": "m", "hashFunction": "sha512", "schema_version": 1}, "read_only": False,
+                    "data_version": None, "signoffs": {"bill": "releng"},
+                },
+                {
+                    "sc_id": 2, "when": 6000000000, "scheduled_by": "bill", "change_type": "update", "complete": False, "sc_data_version": 1,
+                    "name": "c", "product": "c", "data": {"name": "c", "hashFunction": "sha512", "schema_version": 1, "extv": "2.0"},
+                    "read_only": False, "data_version": 1, "signoffs": {},
+                },
+                {
+                    "sc_id": 3, "when": 10000000, "scheduled_by": "bill", "change_type": "update", "complete": True, "sc_data_version": 2,
+                    "name": "b", "product": "b", "data": {"name": "b", "hashFunction": "sha512", "schema_version": 1}, "read_only": False,
+                    "data_version": 1, "signoffs": {},
+                },
+                {
+                    "sc_id": 4, "when": 230000000, "scheduled_by": "bill", "change_type": "delete", "complete": False, "sc_data_version": 1,
+                    "name": "ab", "product": None, "data": None, "read_only": False, "data_version": 1, "signoffs": {},
+                },
+            ]
+        }
+        self.assertEquals(json.loads(ret.data), expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testAddScheduledChangeExistingRelease(self):
+        data = {
+            "when": 2300000000, "name": "d", "data": '{"name": "d", "hashFunction": "sha256", "schema_version": 1}',
+            "product": "d", "data_version": 1, "change_type": "update"
+        }
+        ret = self._post("/scheduled_changes/releases", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+        self.assertEquals(json.loads(ret.data), {"sc_id": 5})
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 5).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 5, "scheduled_by": "bill", "change_type": "update", "complete": False, "data_version": 1, "base_product": "d", "base_read_only": False,
+            "base_name": "d", "base_data": {"name": "d", "hashFunction": "sha256", "schema_version": 1}, "base_data_version": 1
+        }
+        self.assertEquals(db_data, expected)
+        cond = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 5).execute().fetchall()
+        self.assertEquals(len(cond), 1)
+        cond_expected = {"sc_id": 5, "data_version": 1, "when": 2300000000}
+        self.assertEquals(dict(cond[0]), cond_expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testAddScheduledChangeDeleteRelease(self):
+        data = {
+            "when": 4200000000, "name": "d", "data_version": 1, "change_type": "delete",
+        }
+        ret = self._post("/scheduled_changes/releases", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+        self.assertEquals(json.loads(ret.data), {"sc_id": 5})
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 5).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 5, "scheduled_by": "bill", "change_type": "delete", "complete": False, "data_version": 1, "base_product": None, "base_read_only": False,
+            "base_name": "d", "base_data": None, "base_data_version": 1,
+        }
+        self.assertEquals(db_data, expected)
+        cond = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 5).execute().fetchall()
+        self.assertEquals(len(cond), 1)
+        cond_expected = {"sc_id": 5, "data_version": 1, "when": 4200000000}
+        self.assertEquals(dict(cond[0]), cond_expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testAddScheduledChangeNewRelease(self):
+        data = {
+            "when": 5200000000, "name": "q", "data": '{"name": "q", "hashFunction": "sha512", "schema_version": 1}',
+            "product": "q", "change_type": "insert",
+        }
+        ret = self._post("/scheduled_changes/releases", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+        self.assertEquals(json.loads(ret.data), {"sc_id": 5})
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 5).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 5, "scheduled_by": "bill", "change_type": "insert", "complete": False, "data_version": 1, "base_product": "q", "base_read_only": False,
+            "base_name": "q", "base_data": {"name": "q", "hashFunction": "sha512", "schema_version": 1}, "base_data_version": None,
+        }
+        self.assertEquals(db_data, expected)
+        cond = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 5).execute().fetchall()
+        self.assertEquals(len(cond), 1)
+        cond_expected = {"sc_id": 5, "data_version": 1, "when": 5200000000}
+        self.assertEquals(dict(cond[0]), cond_expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testUpdateScheduledChangeExistingRelease(self):
+        data = {
+            "data": '{"name": "c", "hashFunction": "sha512", "extv": "3.0", "schema_version": 1}', "name": "c",
+            "data_version": 1, "sc_data_version": 1, "when": 78900000000, "change_type": "update",
+        }
+        ret = self._post("/scheduled_changes/releases/2", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+        self.assertEquals(json.loads(ret.data), {"new_data_version": 2})
+
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 2).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 2, "complete": False, "change_type": "update", "data_version": 2, "scheduled_by": "bill", "base_name": "c", "base_product": "c",
+            "base_read_only": False, "base_data": {"name": "c", "hashFunction": "sha512", "extv": "3.0", "schema_version": 1},
+            "base_data_version": 1,
+        }
+        self.assertEquals(db_data, expected)
+        cond = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 2).execute().fetchall()
+        self.assertEquals(len(cond), 1)
+        cond_expected = {"sc_id": 2, "data_version": 2, "when": 78900000000}
+        self.assertEquals(dict(cond[0]), cond_expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testUpdateScheduledChangeExistingDeleteRelease(self):
+        data = {
+            "name": "c",
+            "data_version": 1, "sc_data_version": 1, "when": 78900000000, "change_type": "delete"
+        }
+        ret = self._post("/scheduled_changes/releases/4", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testUpdateScheduledChangeNewRelease(self):
+        data = {
+            "data": '{"name": "m", "hashFunction": "sha512", "appv": "4.0", "schema_version": 1}', "name": "m", "product": "m",
+            "sc_data_version": 1, "change_type": "insert",
+        }
+        ret = self._post("/scheduled_changes/releases/1", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+        self.assertEquals(json.loads(ret.data), {"new_data_version": 2})
+
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 1).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 1, "complete": False, "change_type": "insert", "data_version": 2, "scheduled_by": "bill", "base_name": "m", "base_product": "m",
+            "base_read_only": False, "base_data": {"name": "m", "hashFunction": "sha512", "appv": "4.0", "schema_version": 1},
+            "base_data_version": None,
+        }
+        self.assertEquals(db_data, expected)
+        cond = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 1).execute().fetchall()
+        self.assertEquals(len(cond), 1)
+        cond_expected = {"sc_id": 1, "data_version": 2, "when": 4000000000}
+        self.assertEquals(dict(cond[0]), cond_expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=300))
+    def testUpdateScheduledChangeNewReleaseChangeName(self):
+        data = {
+            "data": '{"name": "mm", "hashFunction": "sha512", "appv": "4.0", "schema_version": 1}', "name": "mm", "product": "mm",
+            "sc_data_version": 1, "change_type": "insert",
+
+        }
+        ret = self._post("/scheduled_changes/releases/1", data=data)
+        self.assertEquals(ret.status_code, 200, ret.data)
+        self.assertEquals(json.loads(ret.data), {"new_data_version": 2})
+
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 1).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 1, "complete": False, "change_type": "insert", "data_version": 2, "scheduled_by": "bill", "base_name": "mm", "base_product": "mm",
+            "base_read_only": False, "base_data": {"name": "mm", "hashFunction": "sha512", "appv": "4.0", "schema_version": 1},
+            "base_data_version": None,
+        }
+        self.assertEquals(db_data, expected)
+        cond = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 1).execute().fetchall()
+        self.assertEquals(len(cond), 1)
+        cond_expected = {"sc_id": 1, "data_version": 2, "when": 4000000000}
+        self.assertEquals(dict(cond[0]), cond_expected)
+
+    def testDeleteScheduledChange(self):
+        ret = self._delete("/scheduled_changes/releases/2", qs={"data_version": 1})
+        self.assertEquals(ret.status_code, 200, ret.data)
+        got = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 2).execute().fetchall()
+        self.assertEquals(got, [])
+        cond_got = dbo.releases.scheduled_changes.conditions.t.select().where(dbo.releases.scheduled_changes.conditions.sc_id == 2).execute().fetchall()
+        self.assertEquals(cond_got, [])
+
+    def testEnactScheduledChangeExistingRelease(self):
+        ret = self._post("/scheduled_changes/releases/2/enact")
+        self.assertEquals(ret.status_code, 200, ret.data)
+
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 2).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 2, "complete": True, "data_version": 2, "scheduled_by": "bill", "change_type": "update", "base_name": "c", "base_product": "c",
+            "base_read_only": False, "base_data": {"name": "c", "hashFunction": "sha512", "schema_version": 1, "extv": "2.0"},
+            "base_data_version": 1,
+        }
+        self.assertEquals(db_data, expected)
+
+        base_row = dict(dbo.releases.t.select().where(dbo.releases.name == "c").execute().fetchall()[0])
+        base_expected = {
+            "name": "c", "product": "c", "read_only": False,
+            "data": {"name": "c", "hashFunction": "sha512", "schema_version": 1, "extv": "2.0"}, "data_version": 2,
+        }
+        self.assertEquals(base_row, base_expected)
+
+    def testEnactScheduledChangeNewRelease(self):
+        ret = self._post("/scheduled_changes/releases/1/enact")
+        self.assertEquals(ret.status_code, 200, ret.data)
+
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 1).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 1, "complete": True, "data_version": 2, "scheduled_by": "bill", "change_type": "insert", "base_name": "m", "base_product": "m",
+            "base_read_only": False, "base_data": {"name": "m", "hashFunction": "sha512", "schema_version": 1},
+            "base_data_version": None,
+        }
+        self.assertEquals(db_data, expected)
+
+        base_row = dict(dbo.releases.t.select().where(dbo.releases.name == "m").execute().fetchall()[0])
+        base_expected = {
+            "name": "m", "product": "m", "read_only": False,
+            "data": {"name": "m", "hashFunction": "sha512", "schema_version": 1}, "data_version": 1,
+        }
+        self.assertEquals(base_row, base_expected)
+
+    def testEnactScheduledChangeDeleteRelease(self):
+        ret = self._post("/scheduled_changes/releases/4/enact")
+        self.assertEquals(ret.status_code, 200, ret.data)
+
+        r = dbo.releases.scheduled_changes.t.select().where(dbo.releases.scheduled_changes.sc_id == 4).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        expected = {
+            "sc_id": 4, "complete": True, "data_version": 2, "scheduled_by": "bill", "change_type": "delete", "base_name": "ab", "base_product": None,
+            "base_read_only": False, "base_data": None, "base_data_version": 1,
+        }
+        self.assertEquals(db_data, expected)
+
+        base_row = dbo.releases.t.select().where(dbo.releases.name == "ab").execute().fetchall()
+        self.assertEquals(len(base_row), 0)
+
+    def testGetScheduledChangeHistoryRevisions(self):
+        ret = self._get("/scheduled_changes/releases/3/revisions")
+        self.assertEquals(ret.status_code, 200, ret.data)
+        ret = json.loads(ret.data)
+        expected = {
+            "count": 2,
+            "revisions": [
+                {
+                    "change_id": 7, "changed_by": "bill", "timestamp": 25, "sc_id": 3, "scheduled_by": "bill", "change_type": "update", "data_version": 1,
+                    "name": "b", "product": "b", "data": {"name": "b", "hashFunction": "sha512", "schema_version": 1}, "read_only": False,
+                    "complete": True, "when": 10000000, "sc_data_version": 2,
+                },
+                {
+                    "change_id": 6, "changed_by": "bill", "timestamp": 7, "sc_id": 3, "scheduled_by": "bill", "change_type": "update", "data_version": 1,
+                    "name": "b", "product": "b", "data": {"name": "b", "hashFunction": "sha512", "schema_version": 1}, "read_only": False,
+                    "complete": False, "when": 10000000, "sc_data_version": 1,
+                },
+            ],
+        }
+        self.assertEquals(ret, expected)
+
+    @mock.patch("time.time", mock.MagicMock(return_value=100))
+    def testSignoffWithPermission(self):
+        ret = self._post("/scheduled_changes/releases/2/signoffs", data=dict(role="qa"), username="bill")
+        self.assertEquals(ret.status_code, 200, ret.data)
+        r = dbo.releases.scheduled_changes.signoffs.t.select().where(dbo.releases.scheduled_changes.signoffs.sc_id == 2).execute().fetchall()
+        self.assertEquals(len(r), 1)
+        db_data = dict(r[0])
+        self.assertEquals(db_data, {"sc_id": 2, "username": "bill", "role": "qa"})
+        r = dbo.releases.scheduled_changes.signoffs.history.t.select().where(dbo.releases.scheduled_changes.signoffs.history.sc_id == 2).execute().fetchall()
+        self.assertEquals(len(r), 2)
+        self.assertEquals(dict(r[0]), {"change_id": 3, "changed_by": "bill", "timestamp": 99999, "sc_id": 2, "username": "bill", "role": None})
+        self.assertEquals(dict(r[1]), {"change_id": 4, "changed_by": "bill", "timestamp": 100000, "sc_id": 2, "username": "bill", "role": "qa"})
+
+    def testSignoffWithoutPermission(self):
+        ret = self._post("/scheduled_changes/releases/2/signoffs", data=dict(role="relman"), username="bill")
+        self.assertEquals(ret.status_code, 403, ret.data)
+
+    def testRevokeSignoff(self):
+        ret = self._delete("/scheduled_changes/releases/1/signoffs", username="bill")
+        self.assertEquals(ret.status_code, 200, ret.data)
+        r = dbo.releases.scheduled_changes.signoffs.t.select().where(dbo.releases.scheduled_changes.signoffs.sc_id == 1).execute().fetchall()
+        self.assertEquals(len(r), 0)
 
 
 class TestReleaseHistoryView(ViewTest):
@@ -1167,40 +1544,41 @@ class TestReadOnlyView(ViewTest):
         self.assertEqual(json.loads(ret.data)['read_only'], is_read_only)
 
     def testReadOnlySetTrueAdmin(self):
-        data = dict(name='b', read_only=True, product='Firefox', data_version=1)
-        self._put('/releases/b/read_only', username='bill', data=data)
+        data = dict(name='b', read_only=True, product='b', data_version=1)
+        ret = self._put('/releases/b/read_only', username='bill', data=data)
+        self.assertStatusCode(ret, 201)
         read_only = dbo.releases.isReadOnly(name='b')
         self.assertEqual(read_only, True)
 
     def testReadOnlySetTrueNonAdmin(self):
-        data = dict(name='b', read_only=True, product='Firefox', data_version=1)
-        self._put('/releases/b/read_only', username='bob', data=data)
-        read_only = dbo.releases.isReadOnly(name='b')
-        self.assertEqual(read_only, True)
+        data = dict(name='b', read_only=True, product='b', data_version=1)
+        ret = self._put('/releases/b/read_only', username='bob', data=data)
+        self.assertStatusCode(ret, 201)
         read_only = dbo.releases.isReadOnly(name='b')
         self.assertEqual(read_only, True)
 
     def testReadOnlySetFalseAdmin(self):
         dbo.releases.t.update(values=dict(read_only=True, data_version=2)).where(dbo.releases.name == "a").execute()
-        data = dict(name='b', read_only='', product='Firefox', data_version=2)
-        self._put('/releases/b/read_only', username='bill', data=data)
+        data = dict(name='b', read_only='', product='b', data_version=2)
+        ret = self._put('/releases/b/read_only', username='bill', data=data)
+        self.assertStatusCode(ret, 201)
         read_only = dbo.releases.isReadOnly(name='b')
         self.assertEqual(read_only, False)
 
     def testReadOnlyUnsetWithoutPermissionForProduct(self):
         dbo.releases.t.update(values=dict(read_only=True, data_version=2)).where(dbo.releases.name == "a").execute()
-        data = dict(name='b', read_only='', product='Firefox', data_version=2)
+        data = dict(name='b', read_only='', product='b', data_version=2)
         ret = self._put('/releases/b/read_only', username='me', data=data)
         self.assertStatusCode(ret, 403)
 
     def testReadOnlyAdminSetAndUnsetFlag(self):
         # Setting flag
-        data = dict(name='b', read_only=True, product='Firefox', data_version=1)
+        data = dict(name='b', read_only=True, product='b', data_version=1)
         ret = self._put('/releases/b/read_only', username='bill', data=data)
         self.assertStatusCode(ret, 201)
 
         # Resetting flag
-        data = dict(name='b', read_only='', product='Firefox', data_version=2)
+        data = dict(name='b', read_only='', product='b', data_version=2)
         ret = self._put('/releases/b/read_only', username='bill', data=data)
         self.assertStatusCode(ret, 201)
 
@@ -1210,7 +1588,7 @@ class TestReadOnlyView(ViewTest):
 
     def testReadOnlyNonAdminCanSetFlagButNotUnset(self):
         # Setting read only flag
-        data_set = dict(name='b', read_only=True, product='Firefox', data_version=1)
+        data_set = dict(name='b', read_only=True, product='b', data_version=1)
         ret = self._put('/releases/b/read_only', username='bob', data=data_set)
         self.assertStatusCode(ret, 201)
 
@@ -1219,7 +1597,7 @@ class TestReadOnlyView(ViewTest):
         self.assertEqual(read_only, True)
 
         # Resetting flag, which should fail with 403
-        data_unset = dict(name='b', read_only='', product='Firefox', data_version=2)
+        data_unset = dict(name='b', read_only='', product='b', data_version=2)
         ret = self._put('/releases/b/read_only', username='bob', data=data_unset)
         self.assertStatusCode(ret, 403)
 
